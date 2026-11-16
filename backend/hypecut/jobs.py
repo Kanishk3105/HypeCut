@@ -44,6 +44,10 @@ class JobContext:
     _conn: sqlite3.Connection
     _queue: "JobQueue"
 
+    @property
+    def conn(self) -> sqlite3.Connection:
+        return self._conn
+
     def report(self, stage: str, progress: float | None = None, message: str = "") -> None:
         if stage not in STAGES:
             raise ValueError(f"unknown stage: {stage}")

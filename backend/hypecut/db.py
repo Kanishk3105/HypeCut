@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import uuid
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS projects (
     source_type TEXT NOT NULL CHECK (source_type IN ('youtube', 'local')),
     source_ref TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'created',
+    metadata TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -70,6 +72,28 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+    if "metadata" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN metadata TEXT")
+    conn.commit()
+
+
+def _row_to_project(row: sqlite3.Row) -> dict:
+    project = dict(row)
+    raw = project.get("metadata")
+    if isinstance(raw, str) and raw:
+        try:
+            project["metadata"] = json.loads(raw)
+        except json.JSONDecodeError:
+            project["metadata"] = None
+    return project
+
+
+def set_project_metadata(conn: sqlite3.Connection, project_id: str, data: dict) -> None:
+    conn.execute(
+        "UPDATE projects SET metadata = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(data), utcnow(), project_id),
+    )
     conn.commit()
 
 
@@ -95,16 +119,16 @@ def create_project(
 
 def get_project(conn: sqlite3.Connection, project_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    return dict(row) if row else None
+    return _row_to_project(row) if row else None
 
 
 def list_projects(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
-    return [dict(r) for r in rows]
+    return [_row_to_project(r) for r in rows]
 
 
 def update_project(conn: sqlite3.Connection, project_id: str, **fields: str) -> dict | None:
-    allowed = {"name", "status"}
+    allowed = {"name", "status", "source_ref"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return get_project(conn, project_id)
