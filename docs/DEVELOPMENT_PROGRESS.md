@@ -6,7 +6,7 @@ Rules: a phase is `VERIFIED` only after its tests pass; `PUSHED` only after `ori
 
 | Phase | Description | Status | Files | Tests | Known limitations | Commit | Remote | Date |
 |-------|-------------|--------|-------|-------|-------------------|--------|--------|------|
-| 01 | Workspace and environment audit | NOT_STARTED | — | — | — | — | — | — |
+| 01 | Workspace and environment audit | PUSHED | `.gitignore`, `AGENTS.md`, `HYPECUT_MASTER_PROMPT.md`, `backend/hypecut/audit.py`, `backend/tests/test_audit.py`, `backend/pyproject.toml` | 11/11 pytest passed; live audit exit 0 (all checks PASS) | FFmpeg/Python 3.12 installed during phase via winget; `git diff --check` warns on trailing blank line in untouched master spec | 49913b2 | 49913b2 verified on origin/main | 2026-11-17 |
 | 02 | Open-source repository review and architecture decision | NOT_STARTED | — | — | — | — | — | — |
 | 03 | Windows hardware diagnostics | NOT_STARTED | — | — | — | — | — | — |
 | 04 | Frontend design system and functional navigation | NOT_STARTED | — | — | — | — | — | — |
@@ -43,3 +43,11 @@ Rules: a phase is `VERIFIED` only after its tests pass; `PUSHED` only after `ori
 - Hardware verified: i5-8250U (4C/8T), 7.9 GB RAM, NVIDIA MX130 2 GB (driver 30.0.15.1169), Intel UHD 620, Win11 Build 26200, 148.6 GB free disk.
 - Gaps found: FFmpeg not installed; Python 3.10 only (spec targets 3.11–3.13); Node v24.14.1 present; winget 1.29.380 available.
 - Created `.gitignore` (before any dependency/media generation).
+
+### 2026-11-17 — Phase 01 complete
+
+- Installed FFmpeg 9.0.2 + Python 3.12.10 via winget (gaps found by audit).
+- Implemented `backend/hypecut/audit.py`: toolchain checks (python/git/node/ffmpeg/ffprobe + version ranges), disk space, workspace files, git repo + origin remote verification; JSON/CLI output with exit codes.
+- Tests: `backend/tests/test_audit.py` — 11 passed (version parsing, missing/old tools, missing workspace files, wrong remote, low disk, CLI JSON).
+- Live run: `python -m hypecut.audit` → all PASS, exit 0.
+- Commit `49913b2` pushed and verified on `origin/main` (ls-remote match).
