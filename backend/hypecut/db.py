@@ -3,9 +3,17 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+# The whole application shares one sqlite3.Connection across the FastAPI
+# threads and the job-worker thread. Python's sqlite3 module is not safe for
+# concurrent use of a single connection (implicit transactions interleave and
+# commit() then raises "cannot commit - no transaction is active"), so every
+# touch of the connection goes through this reentrant lock.
+CONN_LOCK = threading.RLock()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -71,11 +79,12 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA)
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
-    if "metadata" not in columns:
-        conn.execute("ALTER TABLE projects ADD COLUMN metadata TEXT")
-    conn.commit()
+    with CONN_LOCK:
+        conn.executescript(SCHEMA)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+        if "metadata" not in columns:
+            conn.execute("ALTER TABLE projects ADD COLUMN metadata TEXT")
+        conn.commit()
 
 
 def _row_to_project(row: sqlite3.Row) -> dict:
@@ -90,11 +99,12 @@ def _row_to_project(row: sqlite3.Row) -> dict:
 
 
 def set_project_metadata(conn: sqlite3.Connection, project_id: str, data: dict) -> None:
-    conn.execute(
-        "UPDATE projects SET metadata = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(data), utcnow(), project_id),
-    )
-    conn.commit()
+    with CONN_LOCK:
+        conn.execute(
+            "UPDATE projects SET metadata = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(data), utcnow(), project_id),
+        )
+        conn.commit()
 
 
 def new_id() -> str:
@@ -108,22 +118,25 @@ def create_project(
         raise ValueError("source_type must be 'youtube' or 'local'")
     now = utcnow()
     project_id = new_id()
-    conn.execute(
-        "INSERT INTO projects (id, name, source_type, source_ref, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (project_id, name, source_type, source_ref, status, now, now),
-    )
-    conn.commit()
+    with CONN_LOCK:
+        conn.execute(
+            "INSERT INTO projects (id, name, source_type, source_ref, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (project_id, name, source_type, source_ref, status, now, now),
+        )
+        conn.commit()
     return get_project(conn, project_id)
 
 
 def get_project(conn: sqlite3.Connection, project_id: str) -> dict | None:
-    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    with CONN_LOCK:
+        row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     return _row_to_project(row) if row else None
 
 
 def list_projects(conn: sqlite3.Connection) -> list[dict]:
-    rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+    with CONN_LOCK:
+        rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
     return [_row_to_project(r) for r in rows]
 
 
@@ -134,31 +147,35 @@ def update_project(conn: sqlite3.Connection, project_id: str, **fields: str) -> 
         return get_project(conn, project_id)
     updates["updated_at"] = utcnow()
     sets = ", ".join(f"{k} = ?" for k in updates)
-    cur = conn.execute(
-        f"UPDATE projects SET {sets} WHERE id = ?",  # noqa: S608 - keys are allow-listed above
-        (*updates.values(), project_id),
-    )
-    conn.commit()
+    with CONN_LOCK:
+        cur = conn.execute(
+            f"UPDATE projects SET {sets} WHERE id = ?",  # noqa: S608 - keys are allow-listed above
+            (*updates.values(), project_id),
+        )
+        conn.commit()
     if cur.rowcount == 0:
         return None
     return get_project(conn, project_id)
 
 
 def delete_project(conn: sqlite3.Connection, project_id: str) -> bool:
-    cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-    conn.commit()
+    with CONN_LOCK:
+        cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.commit()
     return cur.rowcount > 0
 
 
 def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, value),
-    )
-    conn.commit()
+    with CONN_LOCK:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        conn.commit()
 
 
 def get_setting(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    with CONN_LOCK:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
