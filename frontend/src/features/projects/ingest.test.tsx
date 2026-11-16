@@ -27,6 +27,7 @@ vi.mock("../../lib/api", () => {
     },
     uploadProjectFile: vi.fn(),
     waitForJob: vi.fn(),
+    thumbnailUrl: (projectId: string) => `/api/projects/${projectId}/thumbnail`,
   };
 });
 
@@ -77,6 +78,22 @@ const metadataProject = makeProject({
       { height: 1080, label: "1080p" },
       { height: 720, label: "720p" },
     ],
+  },
+});
+
+const downloadedProject = makeProject({
+  name: "Me at the zoo",
+  status: "downloaded",
+  metadata: {
+    ...metadataProject.metadata!,
+    source_path: "C:/HypeCut/data/workspace/proj-1/source.mp4",
+    width: 320,
+    height: 240,
+    fps: 15,
+    video: "h264",
+    audio: "aac",
+    file_size_bytes: 474_478,
+    thumbnail_path: "C:/HypeCut/data/workspace/proj-1/thumbnail.jpg",
   },
 });
 
@@ -135,16 +152,7 @@ describe("NewProjectPage", () => {
           metadata: metadataProject.metadata,
         }),
       )
-      .mockResolvedValueOnce(
-        makeProject({
-          name: "Me at the zoo",
-          status: "downloaded",
-          metadata: {
-            ...metadataProject.metadata!,
-            source_path: "C:/HypeCut/data/workspace/proj-1/source.mp4",
-          },
-        }),
-      );
+      .mockResolvedValueOnce(downloadedProject);
     mockedApi.updateProject.mockResolvedValue(metadataProject);
     mockedApi.downloadVideo.mockResolvedValue(
       makeJob({ id: "dl-job", type: "youtube_download" }),
@@ -173,7 +181,12 @@ describe("NewProjectPage", () => {
     await user.click(screen.getByRole("radio", { name: "720p" }));
     await user.click(screen.getByRole("button", { name: /Download video/i }));
 
-    expect(await screen.findByText(/Downloaded to/)).toBeInTheDocument();
+    expect(await screen.findByText("Download complete")).toBeInTheDocument();
+    const summary = screen.getByTestId("media-summary");
+    expect(summary).toHaveTextContent("320×240 · 15 fps · h264 / aac · 463 KB");
+    expect(summary.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/projects/proj-1/thumbnail",
+    );
     expect(mockedApi.downloadVideo).toHaveBeenCalledWith("proj-1", 720);
     expect(screen.getByRole("button", { name: /Open library/i })).toBeInTheDocument();
   });
@@ -206,7 +219,7 @@ describe("NewProjectPage", () => {
     await user.click(screen.getByRole("button", { name: /Download video/i }));
 
     expect(await screen.findByRole("button", { name: /Download video/i })).toBeInTheDocument();
-    expect(screen.queryByText(/Downloaded to/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Download complete")).not.toBeInTheDocument();
   });
 
   it("surfaces a metadata failure from the backend", async () => {
@@ -238,7 +251,17 @@ describe("NewProjectPage", () => {
         id: "proj-local",
         source_type: "local",
         name: "clip",
-        metadata: { file_name: "clip.mp4" },
+        metadata: {
+          file_name: "clip.mp4",
+          duration_seconds: 1,
+          width: 128,
+          height: 128,
+          fps: 10,
+          video: "h264",
+          audio: "aac",
+          file_size_bytes: 1024,
+          thumbnail_path: "C:/data/workspace/proj-local/thumbnail.jpg",
+        },
       }),
       job: makeJob({ id: "import-job", type: "local_import" }),
     });
@@ -256,7 +279,12 @@ describe("NewProjectPage", () => {
     await user.upload(screen.getByLabelText(/Video file/i), file);
     await user.click(screen.getByRole("button", { name: /Upload & import/i }));
 
-    expect(await screen.findByText(/Imported clip\.mp4/)).toBeInTheDocument();
+    expect(await screen.findByText("Import complete")).toBeInTheDocument();
+    const summary = screen.getByTestId("media-summary");
+    expect(summary).toHaveTextContent("128×128 · 10 fps · h264 / aac");
+    expect(summary.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/projects/proj-local/thumbnail",
+    );
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedWait).toHaveBeenCalledWith(
       "import-job",

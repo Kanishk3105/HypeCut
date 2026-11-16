@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import __version__, db as dbmod
@@ -178,6 +179,23 @@ def create_app(conn=None, queue: JobQueue | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"project": dbmod.get_project(conn, project["id"]), "job": job}
+
+    @app.get("/api/projects/{project_id}/thumbnail")
+    def project_thumbnail(project_id: str) -> FileResponse:
+        project = dbmod.get_project(conn, project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        thumb = (project.get("metadata") or {}).get("thumbnail_path")
+        if not thumb:
+            raise HTTPException(status_code=404, detail="no thumbnail for this project yet")
+        try:
+            resolved = Path(thumb).resolve()
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="thumbnail file missing") from exc
+        workspace_root = (dbmod.default_data_dir() / "workspace").resolve()
+        if not resolved.is_relative_to(workspace_root) or not resolved.is_file():
+            raise HTTPException(status_code=404, detail="thumbnail file missing")
+        return FileResponse(resolved, media_type="image/jpeg")
 
     @app.get("/api/jobs")
     def list_jobs(

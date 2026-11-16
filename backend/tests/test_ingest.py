@@ -252,16 +252,45 @@ def test_youtube_download_handler_success(tmp_path: Path, monkeypatch) -> None:
         return path
 
     monkeypatch.setattr("hypecut.ingest.workspace_dir", fake_ws)
-    monkeypatch.setattr("hypecut.ingest.probe_media_file", lambda path, timeout=20.0: {
-        "duration_seconds": 5.0, "format_name": "mp4", "video": "h264", "audio": "aac",
-    })
+    monkeypatch.setattr(
+        "hypecut.media.probe_media",
+        lambda path, timeout=30.0: {
+            "duration_seconds": 5.0,
+            "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+            "file_size_bytes": 1024,
+            "bit_rate": 500_000,
+            "video": {
+                "codec_name": "h264", "profile": "High", "width": 1280,
+                "height": 720, "fps": 30.0, "pix_fmt": "yuv420p", "bit_rate": 400_000,
+            },
+            "audio": {
+                "codec_name": "aac", "sample_rate": 44100, "channels": 2,
+                "channel_layout": "stereo", "bit_rate": 96_000,
+            },
+        },
+    )
+
+    def fake_thumbnail(source, dest, **kwargs):
+        Path(dest).write_bytes(b"\xff\xd8\xff\xe0fake-jpeg")
+        return Path(dest)
+
+    monkeypatch.setattr("hypecut.media.generate_thumbnail", fake_thumbnail)
     monkeypatch.setattr("yt_dlp.YoutubeDL", FakeYDLDownload)
     ctx = FakeCtx(conn)
     result = youtube_download_handler(ctx, {"project_id": project["id"], "max_height": 720})  # type: ignore[arg-type]
     assert result["source_path"].endswith("source.mp4")
     assert result["downloaded_height"] == 720
+    assert result["width"] == 1280
+    assert result["height"] == 720
+    assert result["fps"] == 30.0
+    assert result["video"] == "h264"
+    assert result["audio"] == "aac"
+    assert result["thumbnail_path"].endswith("thumbnail.jpg")
+    assert "thumbnail_error" not in result
     stages = [r[0] for r in ctx.reports]
-    assert stages == ["download", "download"]
+    assert stages[:2] == ["download", "download"]
+    assert stages[-1] == "media_inspection"
+    assert ctx.reports[-1][1] == 100
     assert ctx.reports[0][1] == 50.0
     assert "MB/s" in ctx.reports[0][2]
     stored = dbmod.get_project(conn, project["id"])
@@ -365,6 +394,16 @@ def test_local_import_handler(tmp_path: Path) -> None:
     result = local_import_handler(ctx, {"project_id": project["id"]})  # type: ignore[arg-type]
     assert result["file_name"] == "local.mp4"
     assert result["duration_seconds"] == pytest.approx(1.0, abs=0.3)
+    assert result["width"] == 128
+    assert result["height"] == 128
+    assert result["fps"] == pytest.approx(10.0, abs=0.5)
+    assert result["video"] == "h264"
+    thumb = Path(result["thumbnail_path"])
+    assert thumb.is_file()
+    assert thumb.read_bytes()[:2] == b"\xff\xd8"
+    stages = [r[0] for r in ctx.reports]
+    assert stages[0] == "media_inspection"
+    assert stages[-1] == "media_inspection"
     stored = dbmod.get_project(conn, project["id"])
     assert stored["status"] == "imported"
     assert stored["metadata"]["video"] == "h264"

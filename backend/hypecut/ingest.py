@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import re
-import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import db as dbmod
+from . import media
 from .jobs import JobContext, JobCancelled
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -128,55 +126,33 @@ def workspace_dir(project_id: str) -> Path:
 
 
 def probe_media_file(path: Path, timeout: float = 20.0) -> dict:
-    if not path.exists():
-        raise IngestError(f"File not found: {path}")
-    if not path.is_file():
-        raise IngestError(f"Not a file: {path}")
-    if path.stat().st_size == 0:
-        raise IngestError("The file is empty (0 bytes).")
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        if path.suffix.lower() not in ALLOWED_LOCAL_SUFFIXES:
-            raise IngestError(
-                f"ffprobe is unavailable and '{path.suffix}' is not a known video format."
-            )
-        return {"duration_seconds": None, "format_name": None, "video": None, "audio": None}
-    cmd = [
-        ffprobe,
-        "-v", "error",
-        "-show_entries", "format=duration,format_name:stream=codec_type,codec_name",
-        "-of", "json",
-        str(path),
-    ]
+    """Minimal probe kept for validation callers; delegates to media.probe_media."""
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace"
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise IngestError(f"Could not inspect the file: {exc}") from exc
-    if proc.returncode != 0:
-        detail = (proc.stderr or "").strip().splitlines()
-        hint = detail[-1] if detail else "ffprobe failed"
-        raise IngestError(
-            f"FFmpeg could not read this file, so it is not a supported video ({hint[:200]})."
-        )
-    try:
-        data = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        raise IngestError("ffprobe returned unreadable output.") from exc
-    streams = data.get("streams") or []
-    fmt = data.get("format") or {}
-    duration = fmt.get("duration")
-    try:
-        duration_seconds = float(duration) if duration is not None else None
-    except (TypeError, ValueError):
-        duration_seconds = None
+        rich = media.probe_media(path, timeout=timeout)
+    except media.MediaError as exc:
+        message = str(exc)
+        if "ffprobe is unavailable" in message:
+            if path.suffix.lower() not in ALLOWED_LOCAL_SUFFIXES:
+                raise IngestError(
+                    f"ffprobe is unavailable and '{path.suffix}' is not a known video format."
+                ) from exc
+            return {"duration_seconds": None, "format_name": None, "video": None, "audio": None}
+        raise IngestError(message) from exc
     return {
-        "duration_seconds": duration_seconds,
-        "format_name": fmt.get("format_name"),
-        "video": next((s.get("codec_name") for s in streams if s.get("codec_type") == "video"), None),
-        "audio": next((s.get("codec_name") for s in streams if s.get("codec_type") == "audio"), None),
+        "duration_seconds": rich["duration_seconds"],
+        "format_name": rich["format_name"],
+        "video": rich["video"]["codec_name"] if rich["video"] else None,
+        "audio": rich["audio"]["codec_name"] if rich["audio"] else None,
     }
+
+
+def _generate_thumbnail(ctx: JobContext, source: Path, workspace: Path) -> dict:
+    ctx.report("media_inspection", 70, "generating thumbnail")
+    try:
+        thumb = media.generate_thumbnail(source, workspace / "thumbnail.jpg")
+    except media.MediaError as exc:
+        return {"thumbnail_error": str(exc)}
+    return {"thumbnail_path": str(thumb)}
 
 
 def _require_project(ctx: JobContext, payload: dict) -> dict:
@@ -278,19 +254,31 @@ def youtube_download_handler(ctx: JobContext, payload: dict) -> dict:
     if not source_path:
         raise IngestError("Download reported success but no file was found in the workspace.")
 
-    probe = probe_media_file(Path(source_path))
+    source = Path(source_path)
+    ctx.report("media_inspection", 20, "reading media metadata")
+    try:
+        probe = media.probe_media(source)
+    except media.MediaError as exc:
+        raise IngestError(str(exc)) from exc
+
     meta = dict(project.get("metadata") or {})
     meta.update(
         {
             "source_path": source_path,
             "downloaded_format": info.get("format_id"),
             "downloaded_height": info.get("height"),
-            "duration_seconds": probe.get("duration_seconds") or info.get("duration"),
-            "format_name": probe.get("format_name"),
         }
     )
+    meta.update(media.flatten_probe(probe))
+    if meta.get("duration_seconds") is None:
+        meta["duration_seconds"] = info.get("duration")
+    meta.pop("thumbnail_path", None)
+    meta.pop("thumbnail_error", None)
+    meta.update(_generate_thumbnail(ctx, source, workspace))
+
     dbmod.set_project_metadata(ctx.conn, project["id"], meta)
     dbmod.update_project(ctx.conn, project["id"], status="downloaded")
+    ctx.report("media_inspection", 100, "media inspected")
     return meta
 
 
@@ -299,18 +287,25 @@ def local_import_handler(ctx: JobContext, payload: dict) -> dict:
     if project["source_type"] != "local":
         raise IngestError("project is not a local file source")
     path = Path(project["source_ref"])
-    ctx.report("validation", 30, "inspecting media file")
-    probe = probe_media_file(path)
+    ctx.report("media_inspection", 20, "inspecting media file")
+    try:
+        probe = media.probe_media(path)
+    except media.MediaError as exc:
+        raise IngestError(str(exc)) from exc
+
     meta = dict(project.get("metadata") or {})
     meta.update(
         {
             "source_path": str(path),
             "file_name": path.name,
-            "file_size_bytes": path.stat().st_size,
-            **{k: v for k, v in probe.items() if k in ("duration_seconds", "format_name", "video", "audio")},
         }
     )
+    meta.update(media.flatten_probe(probe))
+    meta.pop("thumbnail_path", None)
+    meta.pop("thumbnail_error", None)
+    meta.update(_generate_thumbnail(ctx, path, workspace_dir(project["id"])))
+
     dbmod.set_project_metadata(ctx.conn, project["id"], meta)
     dbmod.update_project(ctx.conn, project["id"], status="imported")
-    ctx.report("validation", 100, "file imported")
+    ctx.report("media_inspection", 100, "file imported")
     return meta

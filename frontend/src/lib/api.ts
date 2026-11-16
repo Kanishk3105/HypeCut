@@ -8,10 +8,21 @@ export interface ProjectMetadata {
   format_count?: number;
   source_path?: string;
   downloaded_height?: number;
+  downloaded_format?: string;
   file_name?: string;
+  file_size_bytes?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  pix_fmt?: string;
+  bit_rate?: number;
   video?: string;
   audio?: string;
+  audio_sample_rate?: number;
+  audio_channels?: number;
   format_name?: string;
+  thumbnail_path?: string;
+  thumbnail_error?: string;
   [key: string]: unknown;
 }
 
@@ -207,6 +218,10 @@ export function uploadProjectFile(
 
 export function isTerminalJobStatus(status: JobStatus): boolean {
   return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
+export function thumbnailUrl(projectId: string): string {
+  return `/api/projects/${projectId}/thumbnail`;
 }
 
 export async function waitForJob(

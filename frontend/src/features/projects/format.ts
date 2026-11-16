@@ -27,3 +27,14 @@ export function formatBytes(bytes?: number): string {
   }
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
 }
+
+export function formatResolution(width?: number, height?: number): string {
+  if (!width || !height) return "resolution unknown";
+  return `${width}×${height}`;
+}
+
+export function formatFps(fps?: number): string {
+  if (fps == null || !Number.isFinite(fps) || fps <= 0) return "fps unknown";
+  const rounded = Math.round(fps * 100) / 100;
+  return `${rounded} fps`;
+}

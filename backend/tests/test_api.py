@@ -23,6 +23,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     app = create_app(conn=conn, queue=queue)
     with TestClient(app) as test_client:
         test_client.queue = queue  # type: ignore[attr-defined]
+        test_client.conn = conn  # type: ignore[attr-defined]
         yield test_client
 
 
@@ -267,3 +268,36 @@ def test_upload_flow_via_api(client: TestClient, tmp_path: Path) -> None:
     updated = client.get(f"/api/projects/{project['id']}").json()
     assert updated["status"] == "imported"
     assert Path(updated["metadata"]["source_path"]).is_file()
+    assert updated["metadata"]["width"] == 128
+    assert updated["metadata"]["fps"] == pytest.approx(10.0, abs=0.5)
+
+    thumb = client.get(f"/api/projects/{project['id']}/thumbnail")
+    assert thumb.status_code == 200
+    assert thumb.headers["content-type"].startswith("image/jpeg")
+    assert thumb.content[:2] == b"\xff\xd8"
+
+
+def test_thumbnail_404_when_absent_or_unknown(client: TestClient) -> None:
+    project = client.post(
+        "/api/projects",
+        json={"name": "YT", "source_type": "youtube", "source_ref": "https://youtu.be/jNQXAC9IVRw"},
+    ).json()
+    missing_thumb = client.get(f"/api/projects/{project['id']}/thumbnail")
+    assert missing_thumb.status_code == 404
+    assert "no thumbnail" in missing_thumb.json()["detail"]
+    assert client.get("/api/projects/unknown-id/thumbnail").status_code == 404
+
+
+def test_thumbnail_blocks_paths_outside_workspace(client: TestClient, tmp_path: Path) -> None:
+    project = client.post(
+        "/api/projects",
+        json={"name": "YT", "source_type": "youtube", "source_ref": "https://youtu.be/jNQXAC9IVRw"},
+    ).json()
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"\xff\xd8\xff\xe0-not-really")
+    dbmod.set_project_metadata(
+        client.conn,  # type: ignore[attr-defined]
+        project["id"],
+        {"thumbnail_path": str(outside)},
+    )
+    assert client.get(f"/api/projects/{project['id']}/thumbnail").status_code == 404

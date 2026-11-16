@@ -17,6 +17,7 @@ import {
   type Project,
 } from "../../lib/api";
 import { formatBytes, formatDuration } from "./format";
+import { MediaSummary } from "./MediaSummary";
 
 type Phase = "idle" | "uploading" | "importing" | "done";
 
@@ -155,11 +156,25 @@ export function LocalIngestPanel() {
         <Card className="space-y-3">
           <p className="flex items-center gap-2 text-sm text-emerald-400">
             <CheckCircle2 size={16} aria-hidden />
-            Imported {project.metadata?.file_name ?? project.name}
+            Import complete
+          </p>
+          <MediaSummary
+            projectId={project.id}
+            fileLabel={
+              project.metadata?.file_name ?? project.name
+            }
+            hasThumbnail={Boolean(project.metadata?.thumbnail_path)}
+            width={project.metadata?.width}
+            height={project.metadata?.height}
+            fps={project.metadata?.fps}
+            video={project.metadata?.video}
+            audio={project.metadata?.audio}
+            sizeBytes={project.metadata?.file_size_bytes}
+          />
+          <p className="text-xs text-zinc-500">
             {project.metadata?.duration_seconds != null
-              ? ` · ${formatDuration(project.metadata.duration_seconds)}`
-              : ""}
-            {project.metadata?.video ? ` · ${project.metadata.video}` : ""}
+              ? `Duration ${formatDuration(project.metadata.duration_seconds)}`
+              : "Duration unknown"}
           </p>
           <div className="flex flex-wrap gap-2">
             <Link to="/library">

@@ -12,6 +12,7 @@ import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { api, ApiError, waitForJob, type Job, type Project } from "../../lib/api";
 import { formatDuration } from "./format";
+import { MediaSummary } from "./MediaSummary";
 
 type Phase = "idle" | "fetching" | "ready" | "downloading" | "done";
 
@@ -285,8 +286,21 @@ export function YouTubeIngestPanel() {
               <div className="space-y-3">
                 <p className="flex items-center gap-2 text-sm text-emerald-400">
                   <CheckCircle2 size={16} aria-hidden />
-                  Downloaded to {project.metadata?.source_path ?? "workspace"}
+                  Download complete
                 </p>
+                <MediaSummary
+                  projectId={project.id}
+                  fileLabel={
+                    project.metadata?.source_path ?? "file in workspace"
+                  }
+                  hasThumbnail={Boolean(project.metadata?.thumbnail_path)}
+                  width={project.metadata?.width}
+                  height={project.metadata?.height}
+                  fps={project.metadata?.fps}
+                  video={project.metadata?.video}
+                  audio={project.metadata?.audio}
+                  sizeBytes={project.metadata?.file_size_bytes}
+                />
                 <div className="flex flex-wrap gap-2">
                   <Link to="/library">
                     <Button variant="secondary">Open library</Button>
