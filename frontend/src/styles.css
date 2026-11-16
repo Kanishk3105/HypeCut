@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-surface-950: #090b10;
+  --color-surface-900: #0e1118;
+  --color-surface-800: #151a24;
+  --color-surface-700: #1e2532;
+  --color-line: #262f40;
+  --color-accent-400: #7c8cff;
+  --color-accent-500: #5f6eff;
+  --color-accent-600: #4c59e6;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-surface-950 text-zinc-200 antialiased;
+  font-family: var(--font-sans);
+}
