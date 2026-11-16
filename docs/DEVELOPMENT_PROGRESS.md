@@ -7,8 +7,8 @@ Rules: a phase is `VERIFIED` only after its tests pass; `PUSHED` only after `ori
 | Phase | Description | Status | Files | Tests | Known limitations | Commit | Remote | Date |
 |-------|-------------|--------|-------|-------|-------------------|--------|--------|------|
 | 01 | Workspace and environment audit | PUSHED | `.gitignore`, `AGENTS.md`, `HYPECUT_MASTER_PROMPT.md`, `backend/hypecut/audit.py`, `backend/tests/test_audit.py`, `backend/pyproject.toml` | 11/11 pytest passed; live audit exit 0 (all checks PASS) | FFmpeg/Python 3.12 installed during phase via winget; `git diff --check` warns on trailing blank line in untouched master spec | 49913b2 | 49913b2 verified on origin/main | 2026-11-17 |
-| 02 | Open-source repository review and architecture decision | NOT_STARTED | — | — | — | — | — | — |
-| 03 | Windows hardware diagnostics | NOT_STARTED | — | — | — | — | — | — |
+| 02 | Open-source repository review and architecture decision | PUSHED | `docs/ARCHITECTURE.md` | n/a (research phase; claims verified against cloned sources) | Decisions based on depth-1 clones in temp dir, not committed to repo | 54a3769 | 54a3769 verified on origin/main | 2026-11-17 |
+| 03 | Windows hardware diagnostics | PUSHED | `backend/hypecut/hardware.py`, `backend/tests/test_hardware.py` | 26/26 pytest passed; live diagnostics exit 0 | NVENC real-fail (driver 511.69 < required 610), AMF/VAAPI fail — QSV + libx264 verified working | 1ab3893 | 1ab3893 verified on origin/main | 2026-11-17 |
 | 04 | Frontend design system and functional navigation | NOT_STARTED | — | — | — | — | — | — |
 | 05 | Backend, SQLite and persistent job queue | NOT_STARTED | — | — | — | — | — | — |
 | 06 | Video URL and local-file ingestion | NOT_STARTED | — | — | — | — | — | — |
@@ -51,3 +51,16 @@ Rules: a phase is `VERIFIED` only after its tests pass; `PUSHED` only after `ori
 - Tests: `backend/tests/test_audit.py` — 11 passed (version parsing, missing/old tools, missing workspace files, wrong remote, low disk, CLI JSON).
 - Live run: `python -m hypecut.audit` → all PASS, exit 0.
 - Commit `49913b2` pushed and verified on `origin/main` (ls-remote match).
+
+### 2026-11-17 — Phase 02 complete
+
+- Cloned and inspected (depth 1): `utkualsir/sharkyclips` (MIT), `realiti4/youtube-context-mcp` (MIT), `moha700m/OpenShorts` (MIT core; `cloud/` = commercial licence — excluded).
+- Verified heatmap contract from `metadata.py` TypedDicts + tests; decision recorded in `docs/ARCHITECTURE.md`: rebuild fresh on spec stack, adapt ycm heatmap parser with attribution, patterns-only from the other two.
+- Commit `54a3769` pushed and verified on `origin/main`.
+
+### 2026-11-17 — Phase 03 complete
+
+- `backend/hypecut/hardware.py`: CIM probe (PowerShell, fixed command), registry dedicated-VRAM read, DXGI shared-memory probe (ctypes COM), FFmpeg encoder listing + real smoke tests (`-f lavfi` tiny renders), nvidia-smi detection, verified-laptop profile detection, `python -m hypecut.hardware [--json]`.
+- Tests: 15 new (JSON/encoder/SMI parsers, smoke selection, profile, full fake-collect report, DXGI list, CLI) — suite total 26 passed.
+- Live results (real): i5-8250U 4C/8T, 7.9 GB RAM, MX130 2.0 GB dedicated / 3.94 GB shared, UHD 620 0.12 GB, FFmpeg 9.0.2 with 241 encoders; **h264_qsv OK, libx264 OK; h264_nvenc FAIL (nvEncodeAPI64.dll / driver < 610), h264_amf FAIL, h264_vaapi FAIL, av1_nvenc FAIL**; CUDA not detectable (no nvidia-smi); profile `verified-laptop-conservative`.
+- Commit `1ab3893` pushed and verified on `origin/main`.
