@@ -9,9 +9,9 @@ Rules: a phase is `VERIFIED` only after its tests pass; `PUSHED` only after `ori
 | 01 | Workspace and environment audit | PUSHED | `.gitignore`, `AGENTS.md`, `HYPECUT_MASTER_PROMPT.md`, `backend/hypecut/audit.py`, `backend/tests/test_audit.py`, `backend/pyproject.toml` | 11/11 pytest passed; live audit exit 0 (all checks PASS) | FFmpeg/Python 3.12 installed during phase via winget; `git diff --check` warns on trailing blank line in untouched master spec | 49913b2 | 49913b2 verified on origin/main | 2026-11-17 |
 | 02 | Open-source repository review and architecture decision | PUSHED | `docs/ARCHITECTURE.md` | n/a (research phase; claims verified against cloned sources) | Decisions based on depth-1 clones in temp dir, not committed to repo | 54a3769 | 54a3769 verified on origin/main | 2026-11-17 |
 | 03 | Windows hardware diagnostics | PUSHED | `backend/hypecut/hardware.py`, `backend/tests/test_hardware.py` | 26/26 pytest passed; live diagnostics exit 0 | NVENC real-fail (driver 511.69 < required 610), AMF/VAAPI fail — QSV + libx264 verified working | 1ab3893 | 1ab3893 verified on origin/main | 2026-11-17 |
-| 04 | Frontend design system and functional navigation | PUSHED | `frontend/` (25 files: app shell, 11 pages, design-system components, tests) | 9/9 vitest passed; `tsc --noEmit` clean; `vite build` OK | Pages show honest "not implemented" states until their phases; no fake data | 4462dd3 | 4462dd3 verified on origin/main | 2026-11-17 |
-| 05 | Backend, SQLite and persistent job queue | NOT_STARTED | — | — | — | — | — | — |
-| 06 | Video URL and local-file ingestion | NOT_STARTED | — | — | — | — | — | — |
+| 04 | Frontend design system and functional navigation | PUSHED | `frontend/` (25 files: app shell, 11 pages, design-system components, tests) | 9/9 vitest passed; `tsc --noEmit` clean; `vite build` OK | Pages show honest "not implemented" states until their phases; no fake data. Defect found in phase 06: unanchored `.gitignore` `projects/`/`exports/`/`models/` patterns kept 3 pages out of commit 4462dd3 — recovered in 7dfaeaa | 4462dd3 | 4462dd3 verified on origin/main | 2026-11-17 |
+| 05 | Backend, SQLite and persistent job queue | PUSHED | `backend/hypecut/{db,jobs,api,main}.py`, 3 test files, pyproject deps | 49/49 pytest passed; live server smoke: health + project + hardware_probe job succeeded on 127.0.0.1:8756 | Job progress only from real handlers; recovery/cancel/retry covered | fe72046 | fe72046 verified on origin/main | 2026-11-17 |
+| 06 | Video URL and local-file ingestion | PUSHED | `backend/hypecut/ingest.py`, API/db/jobs updates, `backend/tests/{test_ingest,conftest}.py`, `frontend/src/lib/api.ts`, `frontend/src/features/projects/*` (New Project flow), pyproject deps | 104/104 pytest passed; 28/28 vitest passed; `tsc --noEmit` + `vite build` clean; live smoke: real metadata (title/duration/heatmap/qualities), real yt-dlp download 474 KB merged DASH streams, real multipart upload import | yt-dlp warns no JS runtime (some formats may be missing); download selector fixed mid-phase for DASH-only videos (`bestvideo+bestaudio` fallbacks) | d315d1c | d315d1c verified on origin/main (gitignore fix 7dfaeaa also verified) | 2026-11-17 |
 | 07 | FFmpeg metadata and thumbnail generation | NOT_STARTED | — | — | — | — | — | — |
 | 08 | Local Whisper transcription | NOT_STARTED | — | — | — | — | — | — |
 | 09 | Public YouTube replay heatmap integration | NOT_STARTED | — | — | — | — | — | — |
@@ -64,3 +64,26 @@ Rules: a phase is `VERIFIED` only after its tests pass; `PUSHED` only after `ori
 - Tests: 15 new (JSON/encoder/SMI parsers, smoke selection, profile, full fake-collect report, DXGI list, CLI) — suite total 26 passed.
 - Live results (real): i5-8250U 4C/8T, 7.9 GB RAM, MX130 2.0 GB dedicated / 3.94 GB shared, UHD 620 0.12 GB, FFmpeg 9.0.2 with 241 encoders; **h264_qsv OK, libx264 OK; h264_nvenc FAIL (nvEncodeAPI64.dll / driver < 610), h264_amf FAIL, h264_vaapi FAIL, av1_nvenc FAIL**; CUDA not detectable (no nvidia-smi); profile `verified-laptop-conservative`.
 - Commit `1ab3893` pushed and verified on `origin/main`.
+
+### 2026-11-17 — Phase 04 complete
+
+- Vite 6 + React 18 + TS + Tailwind 4 + Framer Motion + Lucide scaffold; design-system components (Button/Card/EmptyState/SectionHeader) and 11 routed pages with honest per-phase empty states.
+- Tests: 9 vitest passed; `tsc --noEmit` clean; `vite build` OK.
+- Commit `4462dd3` pushed and verified on `origin/main`; docs `f1399e6`.
+
+### 2026-11-17 — Phase 05 complete
+
+- `db.py` (SQLite WAL, projects/jobs/settings, migration hook), `jobs.py` (persistent single-lane queue, 14 stages, cancel/retry/recovery), `api.py` (`create_app` + health/projects/jobs/hardware endpoints with hardware probe cache), `main.py` (loopback-only guard).
+- Tests: 49/49 pytest passed. Live server smoke on `127.0.0.1:8756`: health, project create, `hardware_probe` job → succeeded, `/api/hardware` served from cache.
+- Commit `fe72046` pushed and verified on `origin/main`.
+
+### 2026-11-17 — Phase 06 complete
+
+- `ingest.py`: strict YouTube URL parser (watch/youtu.be/shorts/embed/live/v/music, rejects playlists/search/channels), yt-dlp metadata fetch → title/channel/duration/thumbnail/heatmap flag/quality list, error classification (private/age/blocked/region/unavailable/…), download handler (video+audio merge format with progressive fallbacks, progress hooks with real MB/s, cancellation, ffprobe validation), local import handler.
+- API: `POST /api/projects/{id}/fetch-metadata`, `/download`, `/import`, multipart `POST /api/projects/upload`. DB: `metadata` JSON column + migration; `JobContext.conn` accessor.
+- Frontend: `lib/api.ts` (fetch wrapper, XHR upload with progress, job polling), New Project page with YouTube tab (fetch details → show title/length/heatmap badge/quality picker → download with progress bar + cancel) and local tab (file picker → upload % → import).
+- Defect found and fixed: unanchored `.gitignore` patterns (`projects/`, `exports/`, `models/`) had silently excluded 3 phase-04 source pages from git — anchored patterns in `7dfaeaa`, recovered files verified on remote.
+- Defect found and fixed: `best[height<=…]` selector cannot match DASH-only videos (no progressive streams) — real smoke failed with "Requested format is not available"; switched to `bestvideo+bestaudio/best…` merge strategy, unit test locks it in.
+- Tests: 104/104 pytest, 28/28 vitest, `tsc --noEmit` + `vite build` clean.
+- Live smoke (real network): metadata job succeeded (`Me at the zoo`, 19 s, heatmap=True, 24 formats, 240p/144p), download job succeeded → `source.webm` 474,478 bytes, multipart upload → import succeeded (h264, 1.0 s).
+- Commits `7dfaeaa` (fix) + `d315d1c` (feat) pushed and verified on `origin/main` (rev-parse + ls-remote match).
